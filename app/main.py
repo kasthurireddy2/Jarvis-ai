@@ -15,7 +15,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "agent": JARVIS_NAME, "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash")}
+    return {"status": "ok", "agent": JARVIS_NAME, "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash")}
 
 
 @app.get("/")

@@ -11,7 +11,7 @@ load_dotenv()
 
 JARVIS_NAME = os.getenv("JARVIS_NAME", "JARVIS")
 USER_NAME = os.getenv("USER_NAME", "Sir")
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 SYSTEM_PROMPT = f"""You are {JARVIS_NAME}, a personal AI agent like Jarvis in Iron Man.

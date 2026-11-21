@@ -55,7 +55,7 @@ On the free tier Render sleeps after inactivity — first reply after a sleep ta
 | Variable | Default | What it does |
 |---|---|---|
 | `GEMINI_API_KEY` | — | **Required.** Your Google AI Studio key |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model to use |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model to use |
 | `JARVIS_NAME` | `JARVIS` | The name Jarvis calls itself |
 | `USER_NAME` | `Sir` | What Jarvis calls you |
 
