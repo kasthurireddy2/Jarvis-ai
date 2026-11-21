@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0b1220;color:#e5e7eb;max-width:720px;margin:0 auto;padding:20px}
+h1{color:#38bdf8} #log{border:1px solid #334155;border-radius:12px;padding:12px;min-height:300px;white-space:pre-wrap}
+input,button{padding:10px;border-radius:8px;border:1px solid #334155} input{width:70%;background:#111827;color:#fff}
+button{background:#0284c7;color:#fff;border:none;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>🤖 JARVIS</h1>
+<p>Gemini-powered. Text, voice (mic button uses your browser speech recognition), and vision (upload a photo).</p>
+<div id="log">JARVIS: Good day, Sir. How may I assist you?</div>
+<p>
+<input id="msg" placeholder="Talk to Jarvis..." onkeydown="if(event.key==='Enter')send()">
+<button onclick="send()">Send</button>
+<button onclick="listen()">🎤 Speak</button>
+</p>
+<p><input type="file" id="img" accept="image/*"> <button onclick="vision()">👁️ Describe image</button></p>
+<script>
+const log=document.getElementById('log');
+function add(t){log.textContent+='\n\n'+t;log.scrollTop=log.scrollHeight;}
+async function send(){
+  const m=document.getElementById('msg'); if(!m.value.trim())return;
+  add('You: '+m.value); const v=m.value; m.value='';
+  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:v})});
+  const d=await r.json(); add('JARVIS: '+(d.reply||d.error)); speak(d.reply||'');
+}
+function speak(t){ if(!t||!('speechSynthesis' in window))return; speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }
+function listen(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){alert('Voice input is not supported in this browser — try Chrome.');return;}
+  const r=new SR(); r.lang='en-IN'; r.onresult=e=>{document.getElementById('msg').value=e.results[0][0].transcript;send();}; r.start();
+}
+async function vision(){
+  const f=document.getElementById('img').files[0]; if(!f){alert('Choose an image first.');return;}
+  const fd=new FormData(); fd.append('file',f); fd.append('question','Describe this image in detail, in simple words.');
+  add('You: [image] '+f.name);
+  const r=await fetch('/api/vision',{method:'POST',body:fd}); const d=await r.json(); add('JARVIS: '+(d.reply||d.error));
+}
+</script>
+</body>
+</html>
