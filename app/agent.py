@@ -16,11 +16,13 @@ MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # Model fallback chain. Primary is GEMINI_MODEL (default gemini-3.8-flash).
-# gemini-3.8-flash can return 503 UNAVAILABLE when it is in high demand, so on
-# an overload error we retry briefly, then fall through to the next model.
+# gemini-3.8-flash can return 503/504 when it is in high demand, so on
+# an overload error we fall through to the next model.
 # gemini-3.7-flash and gemini-3.5-flash were verified working for this account.
+# NOTE: gemini-2.5-flash was REMOVED from the chain — it is retired for new
+# users (live 404 on 2026-11-21: "no longer available to new users").
 MODEL_CHAIN = []
-for _m in [MODEL, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"]:
+for _m in [MODEL, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]:
     if _m and _m not in MODEL_CHAIN:
         MODEL_CHAIN.append(_m)
 
@@ -77,14 +79,15 @@ def _is_overloaded(exc: Exception) -> bool:
     which is exactly how the old check missed it.
     """
     code = getattr(exc, "code", None)
-    if isinstance(code, int) and code in (429, 500, 502, 503, 504):
+    if isinstance(code, int) and code in (404, 429, 500, 502, 503, 504):
         return True
     text = str(exc).upper().replace("_", " ")
     return any(
         marker in text
-        for marker in ("429", "500", "502", "503", "504", "UNAVAILABLE",
+        for marker in ("404", "429", "500", "502", "503", "504", "UNAVAILABLE",
                        "OVERLOADED", "HIGH DEMAND", "RESOURCE EXHAUSTED",
-                       "MODEL IS CURRENTLY", "TIMEOUT", "TIMED OUT",
+                       "MODEL IS CURRENTLY", "NOT FOUND",
+                       "NO LONGER AVAILABLE", "TIMEOUT", "TIMED OUT",
                        "DEADLINE EXCEEDED", "DEADLINE EXPIRED")
     )
 
@@ -154,9 +157,14 @@ def _run_tools_if_asked(reply: str) -> str:
             except TypeError:
                 result = fn()
             extra.append(f"[{name} result: {result}]")
-    if extra:
-        return reply + "\n\n" + "\n".join(extra)
-    return reply
+    if not extra:
+        return reply
+    # Strip the raw [TOOL:...] tags out — the user should never see them.
+    # If Gemini's reply was ONLY a tool tag, answer with the result itself.
+    cleaned = re.sub(r"\[TOOL:[a-z_]+:[^\]]*\]", "", reply).strip()
+    if cleaned:
+        return cleaned + "\n\n" + "\n".join(extra)
+    return "\n".join(extra)
 
 
 def _handle_memory_command(message: str) -> str | None:

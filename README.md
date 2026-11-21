@@ -79,7 +79,8 @@ On the free tier Render sleeps after inactivity — first reply after a sleep ta
 | Variable | Default | What it does |
 |---|---|---|
 | `GEMINI_API_KEY` | — | **Required.** Your Google AI Studio key |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | Primary Gemini model. If it returns 503 (busy/high demand), Jarvis retries once after ~1.5s, then falls back in order to gemini-3.7-flash → gemini-3.6-flash → gemini-3.5-flash → gemini-2.5-flash. If all are busy it replies that the AI is busy — it never shows raw API errors. |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Primary Gemini model. If it returns 503/504 (busy/high demand), Jarvis falls through in order to gemini-3.7-flash → gemini-3.6-flash → gemini-3.5-flash, each with a 30s timeout and a 2-minute overall cap. If all are busy it replies that the AI is busy — it never shows raw API errors. (gemini-2.5-flash was removed: retired for new users.) |
+| `JARVIS_TIMEZONE` | `Asia/Kolkata` | Timezone used for time/date answers. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | **Permanent memory (free Upstash Redis).** Set both in Render env vars and Jarvis remembers facts forever, across redeploys. Without them it falls back to local `data/memory.json`, which Render wipes on redeploy. |
 | `JARVIS_NAME` | `JARVIS` | The name Jarvis calls itself |
 | `USER_NAME` | `Sir` | What Jarvis calls you |

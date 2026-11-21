@@ -11,9 +11,22 @@ from .linkedin_tool import post_to_linkedin
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 NOTES_FILE = os.path.join(DATA_DIR, "notes.json")
 
+# Times are answered in the user's timezone (Asia/Kolkata by default) —
+# the Render server runs on UTC, so plain datetime.now() was 5h30m behind.
+try:
+    from zoneinfo import ZoneInfo
+    _TZ = ZoneInfo(os.getenv("JARVIS_TIMEZONE", "Asia/Kolkata"))
+except Exception:
+    _TZ = None
+
+
+def _now():
+    now = datetime.datetime.now()
+    return now.replace(tzinfo=datetime.timezone.utc).astimezone(_TZ) if _TZ else now
+
 
 def get_time() -> str:
-    now = datetime.datetime.now()
+    now = _now()
     return now.strftime("%A, %d %B %Y, %I:%M %p")
 
 
@@ -107,7 +120,7 @@ _FACTS = [
 
 
 def get_date() -> str:
-    now = datetime.datetime.now()
+    now = _now()
     return now.strftime("Today is %A, %d %B %Y.")
 
 
