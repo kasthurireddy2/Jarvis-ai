@@ -68,14 +68,24 @@ def get_client():
 
 
 def _is_overloaded(exc: Exception) -> bool:
-    """True when Gemini says a model is busy/overloaded (503 etc.), or when
-    a request timed out — a timeout means "try the next model", not "hang"."""
-    text = str(exc).upper()
+    """True when Gemini is busy/overloaded or a request timed out.
+
+    Checked two ways, because the SDK error text is easy to miss by
+    substring: the error's numeric code (429/5xx means "try another
+    model"), and the message text with underscores normalised to spaces
+    — the real 504 reads "DEADLINE_EXCEEDED", not "DEADLINE EXCEEDED",
+    which is exactly how the old check missed it.
+    """
+    code = getattr(exc, "code", None)
+    if isinstance(code, int) and code in (429, 500, 502, 503, 504):
+        return True
+    text = str(exc).upper().replace("_", " ")
     return any(
         marker in text
-        for marker in ("503", "429", "UNAVAILABLE", "OVERLOADED", "HIGH DEMAND",
-                       "RESOURCE EXHAUSTED", "MODEL IS CURRENTLY",
-                       "TIMEOUT", "TIMED OUT", "DEADLINE EXCEEDED")
+        for marker in ("429", "500", "502", "503", "504", "UNAVAILABLE",
+                       "OVERLOADED", "HIGH DEMAND", "RESOURCE EXHAUSTED",
+                       "MODEL IS CURRENTLY", "TIMEOUT", "TIMED OUT",
+                       "DEADLINE EXCEEDED", "DEADLINE EXPIRED")
     )
 
 
