@@ -1,44 +1,70 @@
 """LinkedIn posting tool for JARVIS.
 
-Publishes a text post to the user's LinkedIn profile via the UGC API.
-Needs LINKEDIN_ACCESS_TOKEN (OAuth token with the w_member_social scope)
-and LINKEDIN_PERSON_URN (e.g. "urn:li:person:xxxxxx") in env vars.
+Publishes a text post to the user's LinkedIn profile via the current
+Posts API (POST /rest/posts). The old /v2/ugcPosts endpoint is retired.
+
+Needs LINKEDIN_ACCESS_TOKEN (OAuth token with the w_member_social scope,
+from the "Share on LinkedIn" product) in env vars. The author URN is
+fetched automatically from the OpenID userinfo endpoint, so
+LINKEDIN_PERSON_URN is optional — set it only to skip that lookup.
 """
 import json
 import os
 import urllib.request
 import urllib.error
 
+LINKEDIN_VERSION = "202601"  # YYYYMM — pin a recent version; old ones sunset
+
+
+def _get_person_urn(token: str) -> str | None:
+    """Fetch the member's person URN via the OpenID userinfo endpoint."""
+    try:
+        req = urllib.request.Request(
+            "https://api.linkedin.com/v2/userinfo",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as res:
+            sub = json.loads(res.read().decode("utf-8")).get("sub")
+        return f"urn:li:person:{sub}" if sub else None
+    except Exception:
+        return None
+
 
 def post_to_linkedin(text: str) -> str:
     """Publishes a text post to the user's LinkedIn profile."""
     token = os.environ.get("LINKEDIN_ACCESS_TOKEN")
-    author_urn = os.environ.get("LINKEDIN_PERSON_URN")  # e.g. "urn:li:person:xxxxxx"
-    if not token or not author_urn:
-        return ("LinkedIn is not set up, Sir — add LINKEDIN_ACCESS_TOKEN and "
-                "LINKEDIN_PERSON_URN in Render environment variables first.")
+    if not token:
+        return ("LinkedIn is not set up, Sir — add LINKEDIN_ACCESS_TOKEN "
+                "in Render environment variables first.")
     if not (text or "").strip():
         return "What should I post to LinkedIn, Sir?"
 
+    author_urn = os.environ.get("LINKEDIN_PERSON_URN") or _get_person_urn(token)
+    if not author_urn:
+        return ("LinkedIn post failed, Sir — I could not work out your "
+                "profile ID. Check the access token and try again.")
+
     payload = {
         "author": author_urn,
-        "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": text.strip()},
-                "shareMediaCategory": "NONE",
-            }
+        "commentary": text.strip(),
+        "visibility": "PUBLIC",
+        "distribution": {
+            "feedDistribution": "MAIN_FEED",
+            "targetEntities": [],
+            "thirdPartyDistributionChannels": [],
         },
-        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
     }
 
     try:
         req = urllib.request.Request(
-            "https://api.linkedin.com/v2/ugcPosts",
+            "https://api.linkedin.com/rest/posts",
             data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
+                "LinkedIn-Version": LINKEDIN_VERSION,
                 "X-Restli-Protocol-Version": "2.0.0",
             },
         )
