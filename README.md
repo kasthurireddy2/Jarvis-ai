@@ -55,7 +55,7 @@ On the free tier Render sleeps after inactivity — first reply after a sleep ta
 | Variable | Default | What it does |
 |---|---|---|
 | `GEMINI_API_KEY` | — | **Required.** Your Google AI Studio key |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model to use |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Primary Gemini model. If it returns 503 (busy/high demand), Jarvis retries once after ~1.5s, then falls back in order to gemini-3.7-flash → gemini-3.6-flash → gemini-3.5-flash → gemini-2.5-flash. If all are busy it replies that the AI is busy — it never shows raw API errors. |
 | `JARVIS_NAME` | `JARVIS` | The name Jarvis calls itself |
 | `USER_NAME` | `Sir` | What Jarvis calls you |
 

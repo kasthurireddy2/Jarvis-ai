@@ -112,6 +112,11 @@ header{display:flex;align-items:center;gap:14px;padding:6px 2px 14px}
 #preview{display:none;max-width:180px;max-height:140px;border-radius:10px;border:1px solid var(--line);margin-top:10px}
 #preview.show{display:block}
 .note{font-size:12px;color:var(--muted);margin-top:8px}
+#voiceStatus{font-size:13px;color:var(--cyan2);margin-top:6px;min-height:18px}
+#voiceStatus.err{color:var(--danger)}
+.voice-lang{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
+.voice-lang select{padding:8px 10px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--text);font-size:13px;outline:none}
 
 /* Memory + tools */
 section.panel{border:1px solid var(--line-dim);border-radius:14px;padding:12px;background:var(--panel);margin-top:12px}
@@ -155,8 +160,16 @@ footer{margin-top:16px;text-align:center;font-size:11px;color:var(--muted);lette
   <button class="btn" id="sendBtn">Send</button>
 </div>
 <div class="note" id="micNote">Voice input uses your browser's speech recognition. It is not available in the Android WebView app — use text there.</div>
+<div id="voiceStatus" aria-live="polite"></div>
 
 <div class="row">
+  <label class="voice-lang">Voice language
+    <select id="voiceLang">
+      <option value="en-IN" selected>English (India)</option>
+      <option value="en-US">English (US)</option>
+      <option value="hi-IN">Hindi</option>
+    </select>
+  </label>
   <label class="toggle"><input type="checkbox" id="speakToggle" checked> Speak replies aloud</label>
   <button class="btn gold" id="stopSpeakBtn" type="button">Stop speaking</button>
 </div>
@@ -277,34 +290,111 @@ chips.forEach(function(c){
   chipsBox.appendChild(b);
 });
 
-/* Mic */
-var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+/* Mic — Android native bridge first, browser SpeechRecognition otherwise.
+   The Android app exposes window.JarvisAndroid.startListening(); it calls
+   back window.onAndroidSpeechResult(transcript) / window.onAndroidSpeechError(msg).
+   In a browser we use SpeechRecognition with live interim results so the
+   user sees words as they speak, and only send on a final result. */
 var micBtn=document.getElementById('micBtn');
-if(!SR){
+var voiceStatus=document.getElementById('voiceStatus');
+var voiceLang=document.getElementById('voiceLang');
+var listening=false;
+
+function setVoiceStatus(text, isErr){
+  voiceStatus.textContent=text||'';
+  voiceStatus.classList.toggle('err', !!isErr);
+}
+function setListening(on){
+  listening=on;
+  micBtn.classList.toggle('listening', on);
+  if(on){ setBusy(true,'Listening'); }
+  else if(!listening){ setBusy(false); }
+}
+
+/* Android native bridge callbacks — defined up front so the app can call them. */
+window.onAndroidSpeechResult=function(transcript){
+  setListening(false);
+  var t=(transcript||'').trim();
+  if(!t){ setVoiceStatus('I did not catch that, Sir. Please try again.', true); return; }
+  setVoiceStatus('Heard: '+t);
+  document.getElementById('msg').value=t;
+  sendMessage(t);
+};
+window.onAndroidSpeechError=function(msg){
+  setListening(false);
+  setVoiceStatus(msg||'Voice input failed, Sir. Please try again or type it.', true);
+};
+if(window.JarvisAndroid && typeof window.JarvisAndroid.startListening==='function'){
+  document.getElementById('micNote').textContent='Voice input uses the Android app’s native speech recognition.';
+}
+
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SR && !(window.JarvisAndroid && typeof window.JarvisAndroid.startListening==='function')){
   document.getElementById('micNote').textContent='Voice input is not supported in this browser/app. On Android WebView it is unavailable — please type your message instead.';
 }
+function speechErrorText(code){
+  switch(code){
+    case 'no-speech': return 'I did not hear anything, Sir. Please speak a little louder and try again.';
+    case 'audio-capture': return 'No microphone was found, Sir. Please check the mic and try again.';
+    case 'not-allowed': return 'Microphone access was blocked, Sir. Please allow the mic and try again.';
+    case 'network': return 'Voice recognition needs the internet, Sir. Please check your connection and try again.';
+    case 'aborted': return 'Listening stopped, Sir.';
+    case 'language-not-supported': return 'That voice language is not supported here, Sir. Try English (India).';
+    default: return 'I did not catch that, Sir. Please try again or type it.';
+  }
+}
 micBtn.addEventListener('click', function(){
+  if(listening){ return; }
+  /* Android native bridge takes priority when the app provides it. */
+  if(window.JarvisAndroid && typeof window.JarvisAndroid.startListening==='function'){
+    setListening(true);
+    setVoiceStatus('Listening… speak now');
+    try{ window.JarvisAndroid.startListening(); }
+    catch(e){ setListening(false); setVoiceStatus('Voice input failed, Sir. Please try again or type it.', true); }
+    return;
+  }
   if(!SR){
     addMsg('JARVIS','Voice input is not supported in this browser or in the Android app, Sir. Please type your message instead.','jarvis');
     return;
   }
   try{
-    var rec=new SR(); rec.lang='en-IN'; rec.interimResults=false; rec.maxAlternatives=1;
-    micBtn.classList.add('listening'); setBusy(true,'Listening');
+    var rec=new SR();
+    rec.lang=voiceLang.value||'en-IN';
+    rec.interimResults=true;   /* show words live as the user speaks */
+    rec.maxAlternatives=3;     /* best of 3 guesses, so recognition is more accurate */
+    rec.continuous=false;
+    var sent=false;
+    setListening(true);
+    setVoiceStatus('Listening… speak now');
     rec.onresult=function(e){
-      var t=e.results[0][0].transcript;
-      document.getElementById('msg').value=t;
-      micBtn.classList.remove('listening'); setBusy(false);
-      sendMessage(t);
+      var interim='', finalText='';
+      for(var i=e.resultIndex;i<e.results.length;i++){
+        var best=e.results[i][0].transcript;
+        if(e.results[i].isFinal){ finalText+=best; } else { interim+=best; }
+      }
+      if(interim){
+        document.getElementById('msg').value=interim;
+        setVoiceStatus('Heard: '+interim);
+      }
+      if(finalText){
+        sent=true;
+        var t=finalText.trim();
+        document.getElementById('msg').value=t;
+        setVoiceStatus('Heard: '+t);
+        setListening(false);
+        sendMessage(t);
+      }
     };
-    rec.onerror=function(){
-      micBtn.classList.remove('listening'); setBusy(false);
-      addMsg('JARVIS','I did not catch that, Sir. Please try again or type it.','jarvis');
+    rec.onerror=function(ev){
+      setListening(false);
+      setVoiceStatus(speechErrorText(ev && ev.error), true);
+      if(!sent){ addMsg('JARVIS', speechErrorText(ev && ev.error), 'jarvis'); }
     };
-    rec.onend=function(){ micBtn.classList.remove('listening'); setBusy(false); };
+    rec.onend=function(){ setListening(false); };
     rec.start();
   }catch(e){
-    micBtn.classList.remove('listening'); setBusy(false);
+    setListening(false);
+    setVoiceStatus('Voice input failed, Sir. Please try again or type it.', true);
   }
 });
 
