@@ -94,13 +94,16 @@ def _generate_with_fallback(client, contents):
                     time.sleep(1.5)
                 # else: move to the next model immediately
     raise RuntimeError("GEMINI_BUSY") from last_exc
+
+
+def _run_tools_if_asked(reply: str) -> str:
     """Simple tool loop: if Gemini asks for a tool in [TOOL:name:args] form, run it."""
     # Gemini usually answers directly; this keeps tools working even in plain text mode.
     # Format the model is told to use: [TOOL:web_search:query]
     import re
 
     extra = []
-    for match in re.finditer(r"\[TOOL:([a-z_]+):([^\]]+)\]", reply):
+    for match in re.finditer(r"\[TOOL:([a-z_]+):([^\]]*)\]", reply):
         name, arg = match.group(1), match.group(2).strip()
         if name in TOOLS:
             fn, _ = TOOLS[name]
