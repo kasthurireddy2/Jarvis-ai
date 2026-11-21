@@ -5,7 +5,7 @@ import time
 
 from dotenv import load_dotenv
 
-from .memory import memory_text, redis_enabled, remember_fact
+from .memory import forget_fact, memory_text, redis_enabled, remember_fact
 from .tools import TOOLS
 
 load_dotenv()
@@ -59,43 +59,73 @@ def get_client():
             )
         from google import genai
 
-        _client = genai.Client(api_key=API_KEY)
+        # Hard 30s timeout per request (milliseconds): without this, a stalled
+        # Gemini call can hang forever and the chat sits on "thinking..."
+        # forever. A timeout is treated as overload below, so the model
+        # fallback chain moves on to the next model instead of hanging.
+        _client = genai.Client(api_key=API_KEY, http_options={"timeout": 30000})
     return _client
 
 
 def _is_overloaded(exc: Exception) -> bool:
-    """True when Gemini says a model is busy/overloaded (503 etc.)."""
+    """True when Gemini says a model is busy/overloaded (503 etc.), or when
+    a request timed out — a timeout means "try the next model", not "hang"."""
     text = str(exc).upper()
     return any(
         marker in text
         for marker in ("503", "429", "UNAVAILABLE", "OVERLOADED", "HIGH DEMAND",
-                       "RESOURCE EXHAUSTED", "MODEL IS CURRENTLY")
+                       "RESOURCE EXHAUSTED", "MODEL IS CURRENTLY",
+                       "TIMEOUT", "TIMED OUT", "DEADLINE EXCEEDED")
     )
 
 
 def _generate_with_fallback(client, contents):
-    """Call Gemini, walking the model chain on overload errors.
+    """Call Gemini, walking the model chain on overload/timeout errors.
 
-    Fast by design: one short retry (~1.5s) on the same model, then move to
-    the next model immediately — no stacked long waits. Returns
-    (reply_text, model_used). Raises the last error if every model fails
-    with a non-overload error; raises RuntimeError("GEMINI_BUSY") if every
-    model is overloaded.
+    One attempt per model — each attempt is capped at 30s by the client
+    timeout, so a stalled model costs at most 30s before we move on.
+    Returns (reply_text, model_used). Raises the last error if every model
+    fails with a non-overload error; raises RuntimeError("GEMINI_BUSY") if
+    every model is overloaded or times out.
     """
     last_exc = None
     for model in MODEL_CHAIN:
-        for attempt in range(2):  # first try + one short retry
-            try:
-                response = client.models.generate_content(model=model, contents=contents)
-                return (response.text or "", model)
-            except Exception as exc:  # noqa: BLE001 - must fall through the chain
-                last_exc = exc
-                if not _is_overloaded(exc):
-                    raise
-                if attempt == 0:
-                    time.sleep(1.5)
-                # else: move to the next model immediately
+        try:
+            response = client.models.generate_content(model=model, contents=contents)
+            return (response.text or "", model)
+        except Exception as exc:  # noqa: BLE001 - must fall through the chain
+            last_exc = exc
+            if not _is_overloaded(exc):
+                raise
+            # else: move to the next model immediately
     raise RuntimeError("GEMINI_BUSY") from last_exc
+
+
+# Overall ceiling for one Gemini round-trip (all models together). Even if
+# every model stalls for its full 30s, the user gets the friendly busy
+# message instead of an endless "thinking..." spinner.
+GENERATE_DEADLINE_SECONDS = 120
+
+
+def _generate_with_deadline(client, contents):
+    """Run _generate_with_fallback with an overall deadline.
+
+    Raises RuntimeError("GEMINI_BUSY") when the deadline is hit.
+    """
+    import concurrent.futures
+
+    # NOTE: do NOT use "with ThreadPoolExecutor" here — exiting the context
+    # manager waits for the hung worker thread, which would defeat the
+    # deadline entirely. shutdown(wait=False) lets us return at once; the
+    # stalled call keeps running in the background and is simply abandoned.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(_generate_with_fallback, client, contents)
+    try:
+        return future.result(timeout=GENERATE_DEADLINE_SECONDS)
+    except concurrent.futures.TimeoutError as exc:
+        raise RuntimeError("GEMINI_BUSY") from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _run_tools_if_asked(reply: str) -> str:
@@ -159,6 +189,26 @@ def _handle_memory_command(message: str) -> str | None:
             f"Noted, Sir — I'll remember that: {fact}\n"
             "(Saved locally for now — add the Upstash keys in Render to make it permanent.)"
         )
+    # "remember my ..." — e.g. "remember my name is Kasthuri" (the UI chip
+    # sends exactly this). Save "my name is Kasthuri" as the fact.
+    my_match = re.match(r"^(?:please\s+)?remember\s+my\s+(.+)$", text, re.IGNORECASE)
+    if my_match:
+        fact = ("my " + my_match.group(1).strip()).strip()
+        remember_fact(fact)
+        if redis_enabled():
+            return f"Noted, Sir — saved to permanent memory: {fact}"
+        return f"Noted, Sir — I'll remember that: {fact}"
+    # "forget ..." — remove saved facts containing the given words.
+    forget_match = re.match(r"^(?:please\s+)?forget\s+(?:that\s+|this\s+)?(.+)$",
+                            text, re.IGNORECASE)
+    if forget_match:
+        target = forget_match.group(1).strip()
+        if len(target) < 4:
+            return None  # e.g. "forget it" — leave it to Gemini
+        removed = forget_fact(target)
+        if removed:
+            return f"Done, Sir — forgot {removed} memor{'y' if removed == 1 else 'ies'} about '{target}'."
+        return f"I couldn't find anything about '{target}' in my memory, Sir."
     # Recall: what do you remember? / what did I ask you to remember?
     if re.match(
         r"^(?:what\s+do\s+you\s+remember|what\s+did\s+i\s+(?:ask\s+you\s+to\s+)?remember|"
@@ -184,7 +234,7 @@ def chat(message: str, history: list[dict] | None = None) -> str:
         f"User: {message}\n{JARVIS_NAME}:"
     )
     try:
-        reply, _model = _generate_with_fallback(client, prompt)
+        reply, _model = _generate_with_deadline(client, prompt)
     except RuntimeError as exc:
         if str(exc) == "GEMINI_BUSY":
             return BUSY_MESSAGE
@@ -192,7 +242,10 @@ def chat(message: str, history: list[dict] | None = None) -> str:
     reply = reply or "I did not get a reply from Gemini, Sir. Please try again."
     reply = _run_tools_if_asked(reply)
     if reply.startswith("REMEMBER: "):
-        remember_fact(reply[len("REMEMBER: "):].strip())
+        # Save only the first line — Gemini sometimes chats on after the fact.
+        payload = reply[len("REMEMBER: "):].strip().splitlines()
+        if payload and payload[0].strip():
+            remember_fact(payload[0].strip())
     return reply
 
 
@@ -202,7 +255,7 @@ def describe_image(image_bytes: bytes, mime_type: str, question: str = "What is 
     from google.genai import types
 
     try:
-        reply, _model = _generate_with_fallback(
+        reply, _model = _generate_with_deadline(
             client,
             [
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),

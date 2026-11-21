@@ -66,6 +66,31 @@ def get_all_memories() -> list:
     return load_memory()["facts"]
 
 
+def forget_fact(text: str) -> int:
+    """Remove saved facts containing `text` (case-insensitive substring).
+
+    Returns how many facts were removed. Removes from Redis (LREM by exact
+    stored value) and from the local mirror.
+    """
+    needle = (text or "").strip().lower()
+    if not needle:
+        return 0
+    removed = 0
+    if redis_enabled():
+        for fact in get_all_memories():
+            if needle in fact.lower():
+                _redis_cmd(["LREM", MEMORIES_KEY, 0, fact])
+                removed += 1
+    local = _load_local()
+    kept = [f for f in local["facts"] if needle not in f.lower()]
+    local_removed = len(local["facts"]) - len(kept)
+    if local_removed:
+        local["facts"] = kept
+        _save_local(local)
+    # Redis and local mirror hold the same facts, so the distinct count is the max.
+    return max(removed, local_removed)
+
+
 def _load_local() -> dict:
     if not os.path.exists(MEMORY_FILE):
         return {"facts": [], "preferences": []}

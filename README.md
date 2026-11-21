@@ -18,7 +18,13 @@ Tell Jarvis anything with these, and he saves it to permanent memory
 - `remember this: my favourite colour is blue`
 - `don't forget my sister's birthday is 12th December`
 - `remember to call mom tomorrow` — saved as a reminder
+- `remember my name is Kasthuri` — also works, saves "my name is Kasthuri"
+- `forget my favourite colour` — removes matching saved facts
 - `what do you remember?` — reads it all back
+
+Every Gemini call has a 30s per-model timeout and a 2-minute overall
+deadline, so a stalled model falls through to the next one instead of
+leaving chat stuck on "thinking..." forever.
 
 ## LinkedIn posting
 
