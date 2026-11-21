@@ -10,3 +10,11 @@ services:
         value: gemini-3.8-flash
       - key: JARVIS_NAME
         value: JARVIS
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: LINKEDIN_ACCESS_TOKEN
+        sync: false
+      - key: LINKEDIN_PERSON_URN
+        sync: false

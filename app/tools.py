@@ -6,6 +6,8 @@ import re
 
 import requests
 
+from .linkedin_tool import post_to_linkedin
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 NOTES_FILE = os.path.join(DATA_DIR, "notes.json")
 
@@ -256,4 +258,5 @@ TOOLS = {
     "list_notes": (list_notes, "List saved notes"),
     "set_reminder": (set_reminder, "Save a reminder, e.g. 'call mom in 30 minutes'"),
     "list_reminders": (list_reminders, "List saved reminders"),
+    "post_to_linkedin": (post_to_linkedin, "Post text to LinkedIn, e.g. 'Hello from JARVIS'"),
 }

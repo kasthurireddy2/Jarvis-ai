@@ -10,6 +10,24 @@ A Jarvis-style agent, like in Iron Man, built to run on the cloud from a GitHub 
 - Tools: time, calculator, web search, weather, notes, file listing
 - Multi-step tasks, scheduled check-ins, and a simple web UI
 
+## Memory — command words
+
+Tell Jarvis anything with these, and he saves it to permanent memory
+(Upstash Redis when configured, otherwise the local file):
+
+- `remember this: my favourite colour is blue`
+- `don't forget my sister's birthday is 12th December`
+- `remember to call mom tomorrow` — saved as a reminder
+- `what do you remember?` — reads it all back
+
+## LinkedIn posting
+
+Jarvis can post to your LinkedIn profile — say "post to LinkedIn: ..." or
+use the `post_to_linkedin` tool. It needs two Render env vars:
+`LINKEDIN_ACCESS_TOKEN` (OAuth token with the `w_member_social` scope) and
+`LINKEDIN_PERSON_URN` (e.g. `urn:li:person:xxxxxx`). Getting the token means
+creating a LinkedIn developer app — ask Muse and he'll walk you through it.
+
 ## 1. Get a Gemini API key (free tier available)
 
 1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
@@ -56,6 +74,7 @@ On the free tier Render sleeps after inactivity — first reply after a sleep ta
 |---|---|---|
 | `GEMINI_API_KEY` | — | **Required.** Your Google AI Studio key |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Primary Gemini model. If it returns 503 (busy/high demand), Jarvis retries once after ~1.5s, then falls back in order to gemini-3.7-flash → gemini-3.6-flash → gemini-3.5-flash → gemini-2.5-flash. If all are busy it replies that the AI is busy — it never shows raw API errors. |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | **Permanent memory (free Upstash Redis).** Set both in Render env vars and Jarvis remembers facts forever, across redeploys. Without them it falls back to local `data/memory.json`, which Render wipes on redeploy. |
 | `JARVIS_NAME` | `JARVIS` | The name Jarvis calls itself |
 | `USER_NAME` | `Sir` | What Jarvis calls you |
 
@@ -63,7 +82,7 @@ On the free tier Render sleeps after inactivity — first reply after a sleep ta
 
 - `app/main.py` — FastAPI server + web UI + API endpoints
 - `app/agent.py` — Gemini brain, tools, vision
-- `app/memory.py` — long-term memory saved in `data/memory.json`
+- `app/memory.py` — long-term memory: permanent in Upstash Redis when configured, else `data/memory.json`
 - `app/tools.py` — tools Jarvis can call (time, calc, search, weather, notes)
 - `static/index.html` — chat UI with voice + image upload
 - `render.yaml` / `Dockerfile` — cloud deploy

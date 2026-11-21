@@ -5,7 +5,7 @@ import time
 
 from dotenv import load_dotenv
 
-from .memory import memory_text, remember_fact
+from .memory import memory_text, redis_enabled, remember_fact
 from .tools import TOOLS
 
 load_dotenv()
@@ -40,6 +40,8 @@ Use tools when a question needs a live fact: time, date, weather, web search, ne
 If you learn a durable fact about the user (name, preference, goal), say so briefly
 and remember it with the remember tool in your head — in this code that is done
 by the server when you reply starting with 'REMEMBER: '.
+The user can also tell you directly: "remember this ..." or "don't forget ..."
+— the server saves that to permanent memory before you even see it.
 Keep answers short in chat, longer only when the user asks for detail.
 Never invent a booking, payment, or message sent on the user's behalf.
 """
@@ -117,7 +119,62 @@ def _run_tools_if_asked(reply: str) -> str:
     return reply
 
 
+def _handle_memory_command(message: str) -> str | None:
+    """Command words for permanent memory — handled before Gemini is called.
+
+    "remember this ..." / "remember that ..." / "don't forget ..."
+    saves the fact to permanent memory (Redis when configured, else local).
+    "what do you remember?" reads it back. Returns a reply, or None when
+    the message is not a memory command.
+    """
+    import re
+
+    text = (message or "").strip()
+    # Bare command with nothing to save yet: "remember this" / "don't forget"
+    if re.match(r"^(?:please\s+)?(?:remember(?:\s+(?:this|that))?|don'?t\s+forget)\s*[.,!?]?\s*$",
+                text, re.IGNORECASE):
+        return "What should I remember, Sir?"
+    # "remember to ..." is a reminder, not a fact — save it as one.
+    to_match = re.match(r"^(?:please\s+)?remember\s+to\s+(.+)$", text, re.IGNORECASE)
+    if to_match:
+        from .tools import set_reminder
+
+        return set_reminder(to_match.group(1).strip())
+    # Save: remember this <fact> | remember that <fact> | don't forget <fact>
+    save_match = re.match(
+        r"^(?:please\s+)?(?:remember\s+(?:this|that)\s*[:,\-–—]?\s*"
+        r"|don'?t\s+forget\s+(?:that\s+)?"
+        r"|remember\s*[:,\-–—]\s*)(.+)$",
+        text,
+        re.IGNORECASE,
+    )
+    if save_match:
+        fact = save_match.group(1).strip()
+        if not fact:
+            return "What should I remember, Sir?"
+        remember_fact(fact)
+        if redis_enabled():
+            return f"Noted, Sir — saved to permanent memory: {fact}"
+        return (
+            f"Noted, Sir — I'll remember that: {fact}\n"
+            "(Saved locally for now — add the Upstash keys in Render to make it permanent.)"
+        )
+    # Recall: what do you remember? / what did I ask you to remember?
+    if re.match(
+        r"^(?:what\s+do\s+you\s+remember|what\s+did\s+i\s+(?:ask\s+you\s+to\s+)?remember|"
+        r"list\s+(?:what\s+you\s+remember|your\s+memories)|show\s+(?:me\s+)?your\s+memories)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return "Here is what I remember, Sir:\n" + memory_text()
+    return None
+
+
 def chat(message: str, history: list[dict] | None = None) -> str:
+    # Memory command words never need Gemini — answer straight away.
+    memory_reply = _handle_memory_command(message)
+    if memory_reply is not None:
+        return memory_reply
     client = get_client()
     tool_list = "\n".join(f"- {name}: {desc}" for name, (_, desc) in TOOLS.items())
     prompt = (
