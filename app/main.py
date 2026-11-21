@@ -50,7 +50,8 @@ def api_memory():
 
 @app.get("/api/tools")
 def api_tools():
-    return {"tools": [name for name in TOOLS]}
+    # Names for backwards compatibility plus descriptions for the UI.
+    return {"tools": [{"name": name, "description": desc} for name, (_, desc) in TOOLS.items()]}
 
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")

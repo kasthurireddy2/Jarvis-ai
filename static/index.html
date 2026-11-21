@@ -125,7 +125,9 @@ section.panel ul{margin:0;padding-left:18px;color:var(--text);font-size:14px}
 section.panel li{margin:3px 0}
 .tools-row{display:flex;flex-wrap:wrap;gap:6px}
 .tool-tag{padding:5px 10px;border-radius:999px;background:rgba(56,189,248,.12);border:1px solid var(--line-dim);
-  font-size:12px;color:var(--cyan2)}
+  font-size:12px;color:var(--cyan2);cursor:pointer;font-family:inherit}
+.tool-tag:hover{border-color:var(--cyan);box-shadow:0 0 10px rgba(56,189,248,.35)}
+.tool-tag:active{transform:scale(.97)}
 .empty{color:var(--muted);font-size:13px}
 footer{margin-top:16px;text-align:center;font-size:11px;color:var(--muted);letter-spacing:.12em}
 @media (max-width:520px){ .title h1{font-size:21px} .reactor{width:60px;height:60px;flex-basis:60px} .reactor .core{inset:18px} .msg{max-width:92%} }
@@ -236,14 +238,22 @@ fetch('/health').then(function(r){return r.json();}).then(function(d){
   statusPill.classList.add('off');
 });
 
-/* Speak */
+/* Speak — Android native TTS first (the app implements JarvisAndroid.speak),
+   otherwise the browser's speech synthesis. The Android WebView has no
+   speechSynthesis, which is why replies used to stay silent in the app. */
 function speak(t){
   if(!t) return;
   if(!document.getElementById('speakToggle').checked) return;
+  if(window.JarvisAndroid && typeof window.JarvisAndroid.speak==='function'){
+    try{ window.JarvisAndroid.speak(t); return; }catch(e){}
+  }
   if(!('speechSynthesis' in window)) return;
   try{ speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }catch(e){}
 }
 document.getElementById('stopSpeakBtn').addEventListener('click', function(){
+  if(window.JarvisAndroid && typeof window.JarvisAndroid.stopSpeaking==='function'){
+    try{ window.JarvisAndroid.stopSpeaking(); return; }catch(e){}
+  }
   if('speechSynthesis' in window){ try{speechSynthesis.cancel();}catch(e){} }
 });
 
@@ -441,13 +451,43 @@ fetch('/api/memory').then(function(r){return r.json();}).then(function(d){
 }).catch(function(){
   document.getElementById('memoryBox').innerHTML='<p class="empty">Memory could not be loaded.</p>';
 });
+/* Tools — loaded live from /api/tools, one clickable chip per tool.
+   Tap a chip to ask Jarvis to use that tool (sends a sample prompt). */
+var toolPrompts={
+  get_time:"What time is it?",
+  get_date:"What is today's date?",
+  calculate:"Calculate 25*4+10",
+  web_search:"Search the web for GTA 6 news",
+  get_news:"Give me the latest news headlines",
+  get_weather:"Weather in Bengaluru",
+  joke:"Tell me a joke",
+  random_fact:"Tell me a random fact",
+  define_word:"Define the word serendipity",
+  translate:"Translate 'good morning' to Hindi",
+  currency_convert:"Convert 100 USD to INR",
+  system_status:"What is your system status?",
+  save_note:"Save a note: buy milk tomorrow",
+  list_notes:"List my notes",
+  set_reminder:"Set a reminder to call mom in 30 minutes",
+  list_reminders:"List my reminders"
+};
 fetch('/api/tools').then(function(r){return r.json();}).then(function(d){
   var row=document.getElementById('toolsRow');
   var tools=d.tools||[];
   if(!tools.length){ row.innerHTML='<span class="empty">No tools listed.</span>'; return; }
   row.innerHTML='';
   tools.forEach(function(t){
-    var s=document.createElement('span'); s.className='tool-tag'; s.textContent=t; row.appendChild(s);
+    /* Accept both the new {name, description} objects and plain name strings. */
+    var name=(typeof t==='string')?t:(t.name||'');
+    var desc=(typeof t==='string')?'':(t.description||'');
+    if(!name) return;
+    var b=document.createElement('button');
+    b.className='tool-tag'; b.type='button'; b.textContent=name;
+    if(desc) b.title=desc;
+    b.addEventListener('click', function(){
+      sendMessage(toolPrompts[name]||('Use the '+name+' tool'));
+    });
+    row.appendChild(b);
   });
 }).catch(function(){
   document.getElementById('toolsRow').innerHTML='<span class="empty">Tools could not be loaded.</span>';
