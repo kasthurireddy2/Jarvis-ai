@@ -5,7 +5,7 @@ import time
 
 from dotenv import load_dotenv
 
-from .memory import forget_fact, memory_text, redis_enabled, remember_fact
+from .memory import forget_fact, get_all_memories, memory_text, redis_enabled, remember_fact
 from .tools import TOOLS
 
 load_dotenv()
@@ -227,6 +227,16 @@ def _handle_memory_command(message: str) -> str | None:
         if removed:
             return f"Done, Sir — forgot {removed} memor{'y' if removed == 1 else 'ies'} about '{target}'."
         return f"I couldn't find anything about '{target}' in my memory, Sir."
+    # "what is my name?" / "who am I?" — answer straight from memory without
+    # Gemini, so it still works while Gemini is busy.
+    if re.match(r"^(?:what(?:'s| is) my name|who am i|do you know my name)\b",
+                text, re.IGNORECASE):
+        for fact in get_all_memories():
+            name_match = re.search(r"name is\s+(.+?)[.,!?]?\s*$", fact, re.IGNORECASE)
+            if name_match:
+                return f"Your name is {name_match.group(1).strip()}, Sir."
+        return ("I don't have your name saved yet, Sir — "
+                "tell me with \"remember my name is ...\".")
     # Recall: what do you remember? / what did I ask you to remember?
     if re.match(
         r"^(?:what\s+do\s+you\s+remember|what\s+did\s+i\s+(?:ask\s+you\s+to\s+)?remember|"
