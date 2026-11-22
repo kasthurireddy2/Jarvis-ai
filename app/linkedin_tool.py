@@ -48,7 +48,7 @@ def _headers(token: str) -> dict:
     }
 
 
-def _post_payload(author_urn: str, text: str, media: list | None = None) -> dict:
+def _post_payload(author_urn: str, text: str, image_urn: str | None = None, alt_text: str = "") -> dict:
     payload = {
         "author": author_urn,
         "commentary": text.strip(),
@@ -61,8 +61,13 @@ def _post_payload(author_urn: str, text: str, media: list | None = None) -> dict
         "lifecycleState": "PUBLISHED",
         "isReshareDisabledByAuthor": False,
     }
-    if media:
-        payload["media"] = media
+    if image_urn:
+        # Single image on the current Posts API lives under content.media,
+        # NOT a top-level "media" array (that shape is rejected with 422).
+        media = {"id": image_urn}
+        if (alt_text or "").strip():
+            media["altText"] = alt_text.strip()
+        payload["content"] = {"media": media}
     return payload
 
 
@@ -144,36 +149,25 @@ def _download_image(image_url: str) -> tuple[bytes | None, str, str]:
         return None, "", f"I could not download that image, Sir: {e}"
 
 
-def _register_image_upload(token: str, author_urn: str) -> tuple[str, str, str]:
-    """Register an image upload. Returns (upload_url, asset_urn, error)."""
-    body = {
-        "registerUploadRequest": {
-            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
-            "owner": author_urn,
-            "serviceRelationships": [
-                {
-                    "relationshipType": "OWNER",
-                    "identifier": "urn:li:userGeneratedContent",
-                }
-            ],
-        }
-    }
+def _initialize_image_upload(token: str, author_urn: str) -> tuple[str, str, str]:
+    """Ask LinkedIn for an image upload slot (current Images API).
+    Returns (upload_url, image_urn, error). The image URN looks like
+    urn:li:image:... — that is what /rest/posts expects under content.media."""
+    body = {"initializeUploadRequest": {"owner": author_urn}}
     try:
         req = urllib.request.Request(
-            "https://api.linkedin.com/v2/assets?action=registerUpload",
+            "https://api.linkedin.com/rest/images?action=initializeUpload",
             data=json.dumps(body).encode("utf-8"),
             headers=_headers(token),
         )
         with urllib.request.urlopen(req, timeout=10) as res:
             result = json.loads(res.read().decode("utf-8"))
         value = result.get("value", {})
-        upload_url = value.get("uploadMechanism", {}).get(
-            "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {}
-        ).get("uploadUrl", "")
-        asset = value.get("asset", "")
-        if not upload_url or not asset:
+        upload_url = value.get("uploadUrl", "")
+        image_urn = value.get("image", "")
+        if not upload_url or not image_urn:
             return "", "", "LinkedIn did not give me an upload slot for the image, Sir."
-        return upload_url, asset, ""
+        return upload_url, image_urn, ""
     except urllib.error.HTTPError as e:
         try:
             detail = e.read().decode("utf-8")[:300]
@@ -184,14 +178,17 @@ def _register_image_upload(token: str, author_urn: str) -> tuple[str, str, str]:
         return "", "", f"LinkedIn image upload failed: {e}"
 
 
-def _upload_image_bytes(upload_url: str, data: bytes, content_type: str) -> str:
+def _upload_image_bytes(upload_url: str, token: str, data: bytes, content_type: str) -> str:
     """PUT the image bytes to LinkedIn's signed upload URL. Returns error or ''."""
     try:
         req = urllib.request.Request(
             upload_url,
             data=data,
             method="PUT",
-            headers={"Content-Type": content_type},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": content_type,
+            },
         )
         with urllib.request.urlopen(req, timeout=30):
             pass
@@ -226,15 +223,14 @@ def post_to_linkedin_with_image(text: str, image_url: str, alt_text: str = "") -
         return ("LinkedIn post failed, Sir — I could not work out your "
                 "profile ID. Check the access token and try again.")
 
-    upload_url, asset, err = _register_image_upload(token, author_urn)
+    upload_url, image_urn, err = _initialize_image_upload(token, author_urn)
     if err:
         return err
-    err = _upload_image_bytes(upload_url, data, content_type)
+    err = _upload_image_bytes(upload_url, token, data, content_type)
     if err:
         return err
 
-    media = [{"id": asset, "altText": (alt_text or "").strip()}]
-    return _submit_post(token, _post_payload(author_urn, text, media=media))
+    return _submit_post(token, _post_payload(author_urn, text, image_urn=image_urn, alt_text=alt_text))
 
 
 def delete_linkedin_post(post: str) -> str:
