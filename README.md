@@ -1,14 +1,15 @@
 # JARVIS — Gemini-powered personal AI agent
 
-A Jarvis-style agent, like in Iron Man, built to run on the cloud from a GitHub repo.
+A Jarvis-style agent, like in Iron Man, built to run on the cloud from a GitHub repo. Open source under the MIT license — use it, fork it, make it yours.
 
 **Brain:** Google Gemini (Astra-level: text, vision, voice, tools)
 **What it does:**
 - Chats in text, remembers you, your preferences and past work
 - Sees images / screenshots and describes them (vision)
 - Voice in your browser (speech-to-text) + spoken replies (text-to-speech)
-- Tools: time, calculator, web search, weather, notes, file listing
-- Multi-step tasks, scheduled check-ins, and a simple web UI
+- Tools: time, date, calculator, web search, news, weather, jokes, translate, currency, notes, reminders, LinkedIn posting
+- Permanent memory (Upstash Redis) — facts survive redeploys
+- Multi-step tasks and a premium Iron Man HUD web UI
 
 ## Memory — command words
 
@@ -29,10 +30,13 @@ leaving chat stuck on "thinking..." forever.
 ## LinkedIn posting
 
 Jarvis can post to your LinkedIn profile — say "post to LinkedIn: ..." or
-use the `post_to_linkedin` tool. It needs two Render env vars:
-`LINKEDIN_ACCESS_TOKEN` (OAuth token with the `w_member_social` scope) and
-`LINKEDIN_PERSON_URN` (e.g. `urn:li:person:xxxxxx`). Getting the token means
-creating a LinkedIn developer app — ask Muse and he'll walk you through it.
+use the `post_to_linkedin` tool. It needs `LINKEDIN_ACCESS_TOKEN` (OAuth
+token with the `w_member_social` scope) in Render env vars; your profile ID
+is fetched automatically. Getting the token means creating a LinkedIn
+developer app — see the setup steps in the LinkedIn docs, or ask Muse and
+he'll walk you through it. There is also a `POST /api/post-linkedin`
+endpoint (guarded by `JARVIS_POST_SECRET`) for scheduled posting without
+going through Gemini.
 
 ## 1. Get a Gemini API key (free tier available)
 
@@ -43,8 +47,8 @@ creating a LinkedIn developer app — ask Muse and he'll walk you through it.
 ## 2. Run it locally
 
 ```bash
-git clone https://github.com/<your-username>/jarvis-ai.git
-cd jarvis-ai
+git clone https://github.com/kasthurireddy2/Jarvis-ai.git
+cd Jarvis-ai
 cp .env.example .env
 # edit .env and paste your GEMINI_API_KEY
 pip install -r requirements.txt
@@ -53,18 +57,13 @@ uvicorn app.main:app --reload --port 8000
 
 Open http://localhost:8000 — talk to Jarvis there.
 
-## 3. Push to GitHub
+## Contributing
 
-```bash
-git init
-git add .
-git commit -m "Jarvis v1 — Gemini agent"
-git branch -M main
-git remote add origin https://github.com/<your-username>/jarvis-ai.git
-git push -u origin main
-```
+Found a bug or want a new tool? Fork the repo, make your change, and open a
+pull request. Ideas welcome — especially new tools, better voice handling,
+and UI improvements. If you like the project, give it a star ⭐.
 
-## 4. Deploy on Render (free tier, stays online)
+## 3. Deploy on Render (free tier, stays online)
 
 1. Go to [render.com](https://render.com), sign in with GitHub
 2. New → Web Service → pick your `jarvis-ai` repo
@@ -74,7 +73,7 @@ git push -u origin main
 
 On the free tier Render sleeps after inactivity — first reply after a sleep takes ~30 seconds. A paid instance stays awake.
 
-## 5. Config
+## 4. Config
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -83,6 +82,7 @@ On the free tier Render sleeps after inactivity — first reply after a sleep ta
 | `JARVIS_TIMEZONE` | `Asia/Kolkata` | Timezone used for time/date answers. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | **Permanent memory (free Upstash Redis).** Set both in Render env vars and Jarvis remembers facts forever, across redeploys. Without them it falls back to local `data/memory.json`, which Render wipes on redeploy. |
 | `JARVIS_NAME` | `JARVIS` | The name Jarvis calls itself |
+| `JARVIS_POST_SECRET` | — | Secret guarding `POST /api/post-linkedin` (scheduled posting). Set the same value in the request body and in Render env vars. |
 | `USER_NAME` | `Sir` | What Jarvis calls you |
 
 ## Files
@@ -96,6 +96,10 @@ On the free tier Render sleeps after inactivity — first reply after a sleep ta
 
 ## Safety
 
-- Private use only. Jarvis has no access to your accounts unless you add those tools yourself.
-- Never share your `GEMINI_API_KEY`. If it leaks, delete it in AI Studio and make a new one.
+- Jarvis has no access to your accounts unless you add those tools yourself.
+- Never share your `GEMINI_API_KEY` or any access token. If one leaks, revoke it and make a new one.
 - Jarvis can browse and make files, but it will not post, pay for, or send anything on your behalf without you telling it to.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
