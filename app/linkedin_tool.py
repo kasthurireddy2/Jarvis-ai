@@ -69,7 +69,18 @@ def post_to_linkedin(text: str) -> str:
             },
         )
         with urllib.request.urlopen(req, timeout=10) as res:
-            return f"Posted to LinkedIn, Sir (status {res.status})."
+            body = res.read().decode("utf-8")
+        # The 201 body carries the new post's id, e.g. {"id": "urn:li:share:..."}.
+        post_id = ""
+        try:
+            post_id = json.loads(body).get("id", "") or ""
+        except Exception:
+            post_id = ""
+        link = f"https://www.linkedin.com/feed/update/{post_id}" if post_id else ""
+        msg = f"Posted to LinkedIn, Sir (status 201)."
+        if link:
+            msg += f" Link: {link}"
+        return msg
     except urllib.error.HTTPError as e:
         try:
             detail = e.read().decode("utf-8")[:300]

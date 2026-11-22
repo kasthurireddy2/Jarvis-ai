@@ -18,3 +18,5 @@ services:
         sync: false
       - key: LINKEDIN_PERSON_URN
         sync: false
+      - key: JARVIS_POST_SECRET
+        sync: false
