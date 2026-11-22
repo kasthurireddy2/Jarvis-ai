@@ -38,6 +38,13 @@ he'll walk you through it. There is also a `POST /api/post-linkedin`
 endpoint (guarded by `JARVIS_POST_SECRET`) for scheduled posting without
 going through Gemini.
 
+- `POST /api/post-linkedin-image` — same guard, body `{"text", "image_url",
+  "alt_text" (optional), "secret"}`. The image is downloaded server-side
+  from the public URL (max 8 MB), uploaded to LinkedIn, and attached to
+  the post.
+- `POST /api/delete-linkedin-post` — same guard, body `{"post", "secret"}`,
+  where `post` is the post URN (`urn:li:share:...`) or a bare post id.
+
 ## 1. Get a Gemini API key (free tier available)
 
 1. Go to [Google AI Studio](https://aistudio.google.com/apikey)

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .agent import JARVIS_NAME, chat, describe_image
-from .linkedin_tool import post_to_linkedin
+from .linkedin_tool import delete_linkedin_post, post_to_linkedin, post_to_linkedin_with_image
 from .memory import load_memory, memory_text
 from .tools import TOOLS
 
@@ -56,6 +56,19 @@ def api_tools():
     return {"tools": [{"name": name, "description": desc} for name, (_, desc) in TOOLS.items()]}
 
 
+def _check_post_secret(payload: dict):
+    """Shared guard for the LinkedIn endpoints. Returns an error
+    JSONResponse, or None when the caller may proceed. If the env var is
+    not set, the endpoints stay closed (503)."""
+    secret = os.environ.get("JARVIS_POST_SECRET")
+    if not secret:
+        return JSONResponse({"error": "LinkedIn posting endpoint is not configured."}, status_code=503)
+    provided = (payload or {}).get("secret", "")
+    if not isinstance(provided, str) or not hmac.compare_digest(provided, secret):
+        return JSONResponse({"error": "Unauthorized."}, status_code=401)
+    return None
+
+
 @app.post("/api/post-linkedin")
 def api_post_linkedin(payload: dict):
     """Direct LinkedIn posting for the scheduled daily post.
@@ -66,16 +79,44 @@ def api_post_linkedin(payload: dict):
     as the JARVIS_POST_SECRET env var in Render. If the env var is not
     set, the endpoint stays closed (503).
     """
-    secret = os.environ.get("JARVIS_POST_SECRET")
-    if not secret:
-        return JSONResponse({"error": "LinkedIn posting endpoint is not configured."}, status_code=503)
-    provided = (payload or {}).get("secret", "")
-    if not isinstance(provided, str) or not hmac.compare_digest(provided, secret):
-        return JSONResponse({"error": "Unauthorized."}, status_code=401)
+    err = _check_post_secret(payload)
+    if err:
+        return err
     text = ((payload or {}).get("text", "") or "").strip()
     if not text:
         return JSONResponse({"error": "Empty post text."}, status_code=400)
     return {"result": post_to_linkedin(text)}
+
+
+@app.post("/api/post-linkedin-image")
+def api_post_linkedin_image(payload: dict):
+    """Post to LinkedIn with an image attached. Same secret guard as
+    /api/post-linkedin. Body: {"text", "image_url", "alt_text" (optional),
+    "secret"}. The image is downloaded server-side from image_url."""
+    err = _check_post_secret(payload)
+    if err:
+        return err
+    text = ((payload or {}).get("text", "") or "").strip()
+    if not text:
+        return JSONResponse({"error": "Empty post text."}, status_code=400)
+    image_url = ((payload or {}).get("image_url", "") or "").strip()
+    if not image_url:
+        return JSONResponse({"error": "Empty image_url."}, status_code=400)
+    alt_text = ((payload or {}).get("alt_text", "") or "").strip()
+    return {"result": post_to_linkedin_with_image(text, image_url, alt_text)}
+
+
+@app.post("/api/delete-linkedin-post")
+def api_delete_linkedin_post(payload: dict):
+    """Delete a LinkedIn post. Same secret guard as /api/post-linkedin.
+    Body: {"post" (post URN like urn:li:share:... or a bare id), "secret"}."""
+    err = _check_post_secret(payload)
+    if err:
+        return err
+    post = ((payload or {}).get("post", "") or "").strip()
+    if not post:
+        return JSONResponse({"error": "Empty post reference."}, status_code=400)
+    return {"result": delete_linkedin_post(post)}
 
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
